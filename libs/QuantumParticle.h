@@ -28,7 +28,7 @@ namespace QuantumParticle
 		const T L = 1;
 		const T kappa = 0;
 		const T tau = 1;
-		const T omega = 1;
+		const T omega = 0;
 		
 		const size_t N = 100; // number of points
 		const T delta_x = 1./N; 
@@ -41,10 +41,13 @@ namespace QuantumParticle
 		std::vector<T> x;
 
 		const char* PARAMS_FILE = "../Data/params.dat"; // parameters
-		const char* R_FILE = "../Data/r.dat"; // initial positions
 		const char* RHO_FILE = "../Data/rho.dat";
 		const char* OUT_FILE = "../Data/out.dat"; // format "t V E_k E_tot T P"
-		const char* EVAR_FILE = "../Data/E_var.dat"; // energy variance in function of tau
+		const char* EVAR_FILE = "../Data/e_var.dat"; // energy variance in function of tau
+		const char* R_FILE = "../Data/r.dat"; // initial positions
+		const char* N_FILE = "../Data/n.dat";
+		const char* E_FILE = "../Data/e.dat";
+		const char* X_FILE = "../Data/x.dat";
 		
 		void InitWaveFunction(size_t n)
 		{	
@@ -57,7 +60,7 @@ namespace QuantumParticle
 			}
 		}
 
-		T H(std::vector<T> psi, size_t k)
+		inline T H(std::vector<T> psi, size_t k)
 		{
 			if(k == 0 || k == N-1)
 				return 0.;
@@ -65,84 +68,133 @@ namespace QuantumParticle
 				return -0.5*(psi[k+1] + psi[k-1] - 2.* psi[k])/(Utils::f_pow<T>(delta_x,2)) + kappa*(x[k] - 0.5)*psi[k]*std::sin(omega*tau);
 		}
 
-		void CalcH_i() 
-		{	
+		inline void Normalize()
+		{
+			T norm = 0;
 			for(size_t i = 0; i < N; i++)
-				H_i[i] = H(psi_i,i);
+			{
+				norm += Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
+			}
+			for(size_t i = 0; i < N; i++)
+			{
+				psi_r[i] /= norm;
+				psi_i[i] /= norm;
+			}
 		}
 
-		void CalcH_r()
+		void Simulation(T delta_tau, T time, std::vector<size_t> nn = {1})
 		{
-			for(size_t i = 0; i < N; i++)
-				H_r[i] = H(psi_r,i);
-		}
-		
-		void Simulation(T delta_tau, T time)
-		{
-			std::ofstream outputRHO;
-			std::ofstream outputOUT;
-			outputRHO.open(RHO_FILE, std::ios::trunc);
-			outputOUT.open(OUT_FILE, std::ios::trunc);
-			size_t s_d = (size_t)(time/delta_tau);
-			std::cout << s_d << " " << time << " " << delta_tau << "\n";
-			for(size_t s = 0; s < s_d; s++)
+			std::ofstream outputRHO, outputN, outputE, outputX, outputOUT;
+			char buffer[50];
+			for(size_t n : nn)
 			{
-				for(size_t i = 0; i < N; i++)
+				sprintf(buffer, "../Data/rho_n=%lu.dat", n);
+				outputRHO.open(std::string(buffer), std::ios::trunc);
+				sprintf(buffer, "../Data/n_n=%lu.dat", n);
+				outputN.open(std::string(buffer), std::ios::trunc);
+				sprintf(buffer, "../Data/e_n=%ld.dat", n);
+				outputE.open(std::string(buffer), std::ios::trunc);
+				sprintf(buffer, "../Data/x_n=%ld.dat", n);
+				outputX.open(std::string(buffer), std::ios::trunc);
+				sprintf(buffer, "../Data/out_n=%ld.dat", n);
+				outputOUT.open(std::string(buffer), std::ios::trunc);
+				size_t s_d = (size_t)(time/delta_tau);
+				InitWaveFunction(n);
+				Normalize();
+				std::cout << n;
+				for(size_t s = 0; s < s_d; s++)
 				{
-					CalcH_i	();
-					psi_r[i] += H_i[i]*delta_tau/2;
-					CalcH_r();
-					psi_i[i] -= H_r[i]*delta_tau;
-					CalcH_i();
-					psi_r[i] += H_i[i]*delta_tau/2;
-					// std::cout << i << " " << H(psi_r,i) << " " << H(psi_i,i) << "\n";
-				}
-				if(s % s_out == 0)
-				{
-					T sq_sum = 0, sq_x_sum = 0, h_sum = 0;
+					T t = s*delta_tau;
 					for(size_t i = 0; i < N; i++)
 					{
-						T rho_i = Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
-						outputRHO << x[i] << " " << rho_i << "\n\n";// << Utils::f_pow<T>(psi_r[i],2) << " " <<  Utils::f_pow<T>(psi_i[i],2) <<"\n";
-						sq_sum += rho_i;
-						sq_x_sum += x[i]*Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
-						h_sum += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
+						psi_r[i] += H(psi_i,i)*delta_tau/2;
+						psi_i[i] -= H(psi_r,i)*delta_tau;
+						psi_r[i] += H(psi_i,i)*delta_tau/2;
 					}
-					outputRHO << "\n";
-					T N = delta_x * sq_sum;
-					T X = delta_x * sq_x_sum;
-					T Epsilon = delta_x * h_sum;
-					outputOUT <<  N << " " << X << " " << Epsilon << "\n";
+					Normalize();
+					if(s % s_out == 0)
+					{
+						T sq_sum = 0, sq_x_sum = 0, h_sum = 0;
+						for(size_t i = 0; i < N; i++)
+						{
+							T rho_i = Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
+							outputRHO << x[i] << " " << rho_i << "\n\n";
+							sq_sum += rho_i;
+							sq_x_sum += x[i]*Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
+							h_sum += psi_r[i]*H(psi_r,i) + psi_i[i]*H(psi_i,i);
+						}
+						outputRHO << "\n";
+						T N = delta_x * sq_sum;
+						T X = delta_x * sq_x_sum;
+						T E = delta_x * h_sum;
+						outputN << t << " " << N << "\n";
+						outputE << t << " " << E << "\n";
+						outputX << t << " " << X << "\n";
+						outputOUT <<  N << " " << X << " " << E << "\n";
+					}
 				}
+				outputRHO.close();
+				outputN.close();
+				outputE.close();	
+				outputX.close();
+				outputOUT.close();
 			}
-			outputRHO.close();	
-			outputOUT.close();
 		}
 
-		
+		T SimulationEnergyVariance(T delta_tau, T time)
+		{
+			size_t s_d = (size_t)(time/delta_tau);
+			std::vector<T> E_n(s_d);
+			T E_total = 0;
+			for(size_t s = 0; s < s_d; ++s)
+			{	
+				for(size_t i = 0; i < N; i++)
+				{
+					psi_r[i] += H(psi_i,i)*delta_tau/2;
+					psi_i[i] -= H(psi_r,i)*delta_tau;
+					psi_r[i] += H(psi_i,i)*delta_tau/2;
+				}
+				Normalize();
+				T h_sum = 0;
+				for(size_t i = 0; i < N; i++)
+				{
+					h_sum += psi_r[i]*H(psi_r,i) + psi_i[i]*H(psi_i,i);
+				}
+				E_n[s] = delta_x * h_sum;
+				E_total += E_n[s];
+			}
+			E_total /= s_d;
+			T E_var = 0;
+			for(auto e : E_n)
+				E_var += Utils::f_pow<T>(E_total-e,2);
+			return E_var/s_d;
+		}
+
+		void StabilityTest(size_t n, T tau1, T tau2, size_t numberOfPoints, T time)
+		{
+			std::ofstream output;
+			output.open(EVAR_FILE, std::ios::trunc);
+			T d_tau = std::abs(tau1 - tau2)/numberOfPoints;
+			T delta_tau = tau1;
+			InitWaveFunction(n);
+			for(size_t i = 0; i < numberOfPoints; ++i)
+			{
+				std::cout << delta_tau << "\n";
+				output << delta_tau << " " << SimulationEnergyVariance(delta_tau,time) << "\n";
+				delta_tau += d_tau;
+			}
+			output.close();
+		}
+
 		void FlushToFiles()
 		{
 			std::ofstream output;
-			// output.open(PARAMS_FILE, std::ios::trunc);
-			// output << n<<'\n'<<m<<'\n'<<epsilon<<'\n'<<R<<'\n'<<f<<'\n'<<L<<'\n'<<a<<'\n'<<T0<<'\n'<<tau<<'\n'<<s_0<<'\n'<<s_d<<'\n'<<s_out<<'\n'<<s_xyz;
-			// output.close();
-
 			output.open(R_FILE, std::ios::trunc);
 			for(size_t i = 0; i < N; i++)
 			{
 				output << x[i] << " " << psi_r[i] << "\n";
 			}
 			output.close();
-
-			// output.open(P_FILE, std::ios::trunc);
-			// for(auto p_i : p)
-			// 	output << p_i;
-			// output.close();
-			
-			// output.open(F_FILE, std::ios::trunc);
-			// for(auto F_i : F)
-			// 	output << F_i;
-			// output.close();
 		}
 	};
 }
