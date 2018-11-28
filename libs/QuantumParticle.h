@@ -26,13 +26,12 @@ namespace QuantumParticle
 			H_i.resize(N);
 		}
 		const T L = 1;
-		const T kappa = 0;
-		const T tau = 1;
-		const T omega = 0;
+		const T kappa = 5;
+		const T omega = 3*Utils::f_pow<T>(M_PI,2)/2;
 		
 		const size_t N = 100; // number of points
 		const T delta_x = 1./N; 
-		const size_t s_out = 10; // out.dat: info saved every 100 iterations
+		const size_t s_out = 100; // out.dat: info saved every 10 iterations
 		
 		std::vector<T> psi_r;
 		std::vector<T> psi_i;
@@ -42,7 +41,7 @@ namespace QuantumParticle
 
 		const char* PARAMS_FILE = "../Data/params.dat"; // parameters
 		const char* RHO_FILE = "../Data/rho.dat";
-		const char* OUT_FILE = "../Data/out.dat"; // format "t V E_k E_tot T P"
+		const char* OUT_FILE = "../Data/out.dat"; // format "N X E"
 		const char* EVAR_FILE = "../Data/e_var.dat"; // energy variance in function of tau
 		const char* R_FILE = "../Data/r.dat"; // initial positions
 		const char* N_FILE = "../Data/n.dat";
@@ -60,7 +59,7 @@ namespace QuantumParticle
 			}
 		}
 
-		inline T H(std::vector<T> psi, size_t k)
+		inline T H(std::vector<T> psi, size_t k, T tau)
 		{
 			if(k == 0 || k == N-1)
 				return 0.;
@@ -82,6 +81,16 @@ namespace QuantumParticle
 			}
 		}
 
+		inline void CalculateHamiltonianR(T tau){
+			for(size_t i = 0; i < N; i++)
+				H_r[i] = H(psi_r,i,tau);
+		}
+
+		inline void CalculateHamiltonianI(T tau){
+			for(size_t i = 0; i < N; i++)
+				H_i[i] = H(psi_i,i,tau);
+		}
+
 		void Simulation(T delta_tau, T time, std::vector<size_t> nn = {1})
 		{
 			std::ofstream outputRHO, outputN, outputE, outputX, outputOUT;
@@ -100,28 +109,32 @@ namespace QuantumParticle
 				outputOUT.open(std::string(buffer), std::ios::trunc);
 				size_t s_d = (size_t)(time/delta_tau);
 				InitWaveFunction(n);
-				Normalize();
-				std::cout << n;
+				T t = 0;
 				for(size_t s = 0; s < s_d; s++)
 				{
-					T t = s*delta_tau;
+					CalculateHamiltonianI(t);
 					for(size_t i = 0; i < N; i++)
-					{
-						psi_r[i] += H(psi_i,i)*delta_tau/2;
-						psi_i[i] -= H(psi_r,i)*delta_tau;
-						psi_r[i] += H(psi_i,i)*delta_tau/2;
-					}
-					Normalize();
+						psi_r[i] += H_i[i]*delta_tau/2;
+					t += delta_tau/2;
+					CalculateHamiltonianR(t);
+					for(size_t i = 0; i < N; i++)
+						psi_i[i] -= H_r[i]*delta_tau;
+					t += delta_tau/2;
+					CalculateHamiltonianI(t);
+					for(size_t i = 0; i < N; i++)
+						psi_r[i] += H_i[i]*delta_tau/2;
+
 					if(s % s_out == 0)
 					{
 						T sq_sum = 0, sq_x_sum = 0, h_sum = 0;
+						CalculateHamiltonianR(t);
 						for(size_t i = 0; i < N; i++)
 						{
 							T rho_i = Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
 							outputRHO << x[i] << " " << rho_i << "\n\n";
 							sq_sum += rho_i;
 							sq_x_sum += x[i]*Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
-							h_sum += psi_r[i]*H(psi_r,i) + psi_i[i]*H(psi_i,i);
+							h_sum += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
 						}
 						outputRHO << "\n";
 						T N = delta_x * sq_sum;
@@ -130,7 +143,7 @@ namespace QuantumParticle
 						outputN << t << " " << N << "\n";
 						outputE << t << " " << E << "\n";
 						outputX << t << " " << X << "\n";
-						outputOUT <<  N << " " << X << " " << E << "\n";
+						outputOUT << N << " " << X << " " << E << "\n";
 					}
 				}
 				outputRHO.close();
@@ -146,19 +159,25 @@ namespace QuantumParticle
 			size_t s_d = (size_t)(time/delta_tau);
 			std::vector<T> E_n(s_d);
 			T E_total = 0;
+			T t = 0;
 			for(size_t s = 0; s < s_d; ++s)
 			{	
+				CalculateHamiltonianI(t);
 				for(size_t i = 0; i < N; i++)
-				{
-					psi_r[i] += H(psi_i,i)*delta_tau/2;
-					psi_i[i] -= H(psi_r,i)*delta_tau;
-					psi_r[i] += H(psi_i,i)*delta_tau/2;
-				}
-				Normalize();
+					psi_r[i] += H_i[i]*delta_tau/2;
+				t += delta_tau/2;
+				CalculateHamiltonianR(t);
+				for(size_t i = 0; i < N; i++)
+					psi_i[i] -= H_r[i]*delta_tau;
+				t += delta_tau/2;
+				CalculateHamiltonianI(t);
+				for(size_t i = 0; i < N; i++)
+					psi_r[i] += H_i[i]*delta_tau/2;
 				T h_sum = 0;
+				CalculateHamiltonianR(t);
 				for(size_t i = 0; i < N; i++)
 				{
-					h_sum += psi_r[i]*H(psi_r,i) + psi_i[i]*H(psi_i,i);
+					h_sum += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
 				}
 				E_n[s] = delta_x * h_sum;
 				E_total += E_n[s];
@@ -176,9 +195,9 @@ namespace QuantumParticle
 			output.open(EVAR_FILE, std::ios::trunc);
 			T d_tau = std::abs(tau1 - tau2)/numberOfPoints;
 			T delta_tau = tau1;
-			InitWaveFunction(n);
 			for(size_t i = 0; i < numberOfPoints; ++i)
 			{
+				InitWaveFunction(n);
 				std::cout << delta_tau << "\n";
 				output << delta_tau << " " << SimulationEnergyVariance(delta_tau,time) << "\n";
 				delta_tau += d_tau;
