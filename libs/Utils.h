@@ -1,9 +1,6 @@
 #ifndef _Utils_h_
 #define _Utils_h_
 
-#include <iostream>
-#include <fstream>
-
 namespace Utils
 {
 	template <typename T>
