@@ -25,9 +25,10 @@ namespace QuantumParticle
 			H_r.resize(N);
 			H_i.resize(N);
 		}
-		const T L = 1;
-		const T kappa = 5;
-		const T omega = 3*Utils::f_pow<T>(M_PI,2)/2;
+		const T L = 1;	
+		const T kappa = 10;
+		const std::vector<T> omegas = {3*M_PI*M_PI/2, 4*M_PI*M_PI/2, 8*M_PI*M_PI/2};
+		T omega = omegas[0];
 		
 		const size_t N = 100; // number of points
 		const T delta_x = 1./N; 
@@ -67,20 +68,6 @@ namespace QuantumParticle
 				return -0.5*(psi[k+1] + psi[k-1] - 2.* psi[k])/(Utils::f_pow<T>(delta_x,2)) + kappa*(x[k] - 0.5)*psi[k]*std::sin(omega*tau);
 		}
 
-		inline void Normalize()
-		{
-			T norm = 0;
-			for(size_t i = 0; i < N; i++)
-			{
-				norm += Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
-			}
-			for(size_t i = 0; i < N; i++)
-			{
-				psi_r[i] /= norm;
-				psi_i[i] /= norm;
-			}
-		}
-
 		inline void CalculateHamiltonianR(T tau){
 			for(size_t i = 0; i < N; i++)
 				H_r[i] = H(psi_r,i,tau);
@@ -91,14 +78,16 @@ namespace QuantumParticle
 				H_i[i] = H(psi_i,i,tau);
 		}
 
-		void Simulation(T delta_tau, T time, std::vector<size_t> nn = {1})
+		void Simulation(T delta_tau, T time, std::vector<size_t> nn = {1}, T n_omega = 0)
 		{
 			std::ofstream outputRHO, outputN, outputE, outputX, outputOUT;
 			char buffer[50];
+			omega = n_omega;
 			for(size_t n : nn)
 			{
 				sprintf(buffer, "../Data/rho_n=%lu.dat", n);
 				outputRHO.open(std::string(buffer), std::ios::trunc);
+				outputRHO << "t rho" << "\n";
 				sprintf(buffer, "../Data/n_n=%lu.dat", n);
 				outputN.open(std::string(buffer), std::ios::trunc);
 				sprintf(buffer, "../Data/e_n=%ld.dat", n);
@@ -154,6 +143,98 @@ namespace QuantumParticle
 			}
 		}
 
+		void SimulationOmegas(T delta_tau, T time, std::vector<size_t> nn = {1}, std::vector<T> omegas = {3*M_PI*M_PI/2, 4*M_PI*M_PI/2, 8*M_PI*M_PI/2})
+		{
+			for(size_t n : nn)
+			{
+				std::ofstream outputE, outputO;
+				char buffer[50];
+				sprintf(buffer, "../Data/omegas_n=%lu.dat",n);
+				outputO.open(std::string(buffer), std::ios::trunc);
+				outputO << "omega\n";	
+				for(T o : omegas)
+					outputO << o << "\n";	
+				size_t o_index = 0;
+				for(T o : omegas)
+				{
+					omega = o;
+					sprintf(buffer, "../Data/e_n=%lu_omega=%lu.dat", n, o_index++);
+					outputE.open(std::string(buffer), std::ios::trunc);
+					size_t s_d = (size_t)(time/delta_tau);
+					InitWaveFunction(n);
+					T t = 0;
+					for(size_t s = 0; s < s_d; s++)
+					{
+						CalculateHamiltonianI(t);
+						for(size_t i = 0; i < N; i++)
+							psi_r[i] += H_i[i]*delta_tau/2;
+						t += delta_tau/2;
+						CalculateHamiltonianR(t);
+						for(size_t i = 0; i < N; i++)
+							psi_i[i] -= H_r[i]*delta_tau;
+						t += delta_tau/2;
+						CalculateHamiltonianI(t);
+						for(size_t i = 0; i < N; i++)
+							psi_r[i] += H_i[i]*delta_tau/2;
+						T h_sum = 0.;
+						CalculateHamiltonianR(t);
+						for(size_t i = 0; i < N; i++)
+							h_sum += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
+						outputE << t << " " << delta_x * h_sum << "\n";
+					}	
+					outputE.close();	
+				}
+				outputO.close();
+			}
+		}
+
+		void SimulationResonance(T delta_tau, T time, size_t n = 1, T n_omega = 3*M_PI*M_PI/2)
+		{
+			std::ofstream outputO;
+			char buffer[50];
+			sprintf(buffer, "../Data/resonance_n=%lu.dat",n);
+			outputO.open(std::string(buffer), std::ios::trunc);
+			outputO << "omega_i/omega e" << "\n";
+			T frac0 = 0.9;
+			T frac1 = 1.1;
+			size_t n_points = 10;
+			T d_frac = (frac1 - frac0) / n_points;
+			T initial_omega = n_omega;
+			omega = frac0 * initial_omega;
+			size_t s_d = (size_t)(time/delta_tau);
+			for(size_t i = 0; i <= n_points; i++)
+			{
+				InitWaveFunction(n);
+				T t = 0;
+				T E_max = 0.;
+				for(size_t s = 0; s < s_d; s++)
+				{
+					CalculateHamiltonianI(t);
+					for(size_t i = 0; i < N; i++)
+						psi_r[i] += H_i[i]*delta_tau/2;
+					t += delta_tau/2;
+					CalculateHamiltonianR(t);
+					for(size_t i = 0; i < N; i++)
+						psi_i[i] -= H_r[i]*delta_tau;
+					t += delta_tau/2;
+					CalculateHamiltonianI(t);
+					for(size_t i = 0; i < N; i++)
+						psi_r[i] += H_i[i]*delta_tau/2;
+					T E = 0.;
+					CalculateHamiltonianR(t);
+					for(size_t i = 0; i < N; i++)
+						E += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
+					E > E_max ? E_max = E : E_max = E_max;
+				}
+				E_max *= delta_x;
+				outputO << omega/initial_omega << " " << E_max << "\n";
+				std::cout << omega/initial_omega << " " << E_max << "\n";
+				frac0 += d_frac;
+				omega = frac0 * initial_omega;
+			}
+			outputO.close();	
+		}
+
 		T SimulationEnergyVariance(T delta_tau, T time)
 		{
 			size_t s_d = (size_t)(time/delta_tau);
@@ -176,12 +257,10 @@ namespace QuantumParticle
 				T h_sum = 0;
 				CalculateHamiltonianR(t);
 				for(size_t i = 0; i < N; i++)
-				{
 					h_sum += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
-				}
 				E_n[s] = delta_x * h_sum;
 				E_total += E_n[s];
-			}
+			}	
 			E_total /= s_d;
 			T E_var = 0;
 			for(auto e : E_n)
@@ -189,29 +268,21 @@ namespace QuantumParticle
 			return E_var/s_d;
 		}
 
-		void StabilityTest(size_t n, T tau1, T tau2, size_t numberOfPoints, T time)
+		void StabilityTest(size_t n, T tau1, T tau2, size_t numberOfPoints)
 		{
+			omega = 0;
 			std::ofstream output;
 			output.open(EVAR_FILE, std::ios::trunc);
 			T d_tau = std::abs(tau1 - tau2)/numberOfPoints;
 			T delta_tau = tau1;
+			size_t N = 20000;
 			for(size_t i = 0; i < numberOfPoints; ++i)
 			{
 				InitWaveFunction(n);
-				std::cout << delta_tau << "\n";
-				output << delta_tau << " " << SimulationEnergyVariance(delta_tau,time) << "\n";
+				T E = SimulationEnergyVariance(delta_tau,N*delta_tau);
+				std::cout << delta_tau << " " << E << "\n";
+				output << delta_tau << " " << E << "\n";
 				delta_tau += d_tau;
-			}
-			output.close();
-		}
-
-		void FlushToFiles()
-		{
-			std::ofstream output;
-			output.open(R_FILE, std::ios::trunc);
-			for(size_t i = 0; i < N; i++)
-			{
-				output << x[i] << " " << psi_r[i] << "\n";
 			}
 			output.close();
 		}
