@@ -78,6 +78,21 @@ namespace QuantumParticle
 				H_i[i] = H(psi_i,i,tau);
 		}
 
+		inline void Step(T &t, T delta_tau){
+			CalculateHamiltonianI(t);
+			for(size_t i = 0; i < N; i++)
+				psi_r[i] += H_i[i]*delta_tau/2;
+			t += delta_tau/2;
+			CalculateHamiltonianR(t);
+			for(size_t i = 0; i < N; i++)
+				psi_i[i] -= H_r[i]*delta_tau;
+			t += delta_tau/2;
+			CalculateHamiltonianI(t);
+			for(size_t i = 0; i < N; i++)
+				psi_r[i] += H_i[i]*delta_tau/2;
+			CalculateHamiltonianR(t);
+		}
+
 		void Simulation(T delta_tau, T time, std::vector<size_t> nn = {1}, T n_omega = 0)
 		{
 			std::ofstream outputRHO, outputN, outputE, outputX, outputOUT;
@@ -101,22 +116,10 @@ namespace QuantumParticle
 				T t = 0;
 				for(size_t s = 0; s < s_d; s++)
 				{
-					CalculateHamiltonianI(t);
-					for(size_t i = 0; i < N; i++)
-						psi_r[i] += H_i[i]*delta_tau/2;
-					t += delta_tau/2;
-					CalculateHamiltonianR(t);
-					for(size_t i = 0; i < N; i++)
-						psi_i[i] -= H_r[i]*delta_tau;
-					t += delta_tau/2;
-					CalculateHamiltonianI(t);
-					for(size_t i = 0; i < N; i++)
-						psi_r[i] += H_i[i]*delta_tau/2;
-
+					Step(t, delta_tau);
 					if(s % s_out == 0)
 					{
 						T sq_sum = 0, sq_x_sum = 0, h_sum = 0;
-						CalculateHamiltonianR(t);
 						for(size_t i = 0; i < N; i++)
 						{
 							T rho_i = Utils::f_pow<T>(psi_r[i],2) + Utils::f_pow<T>(psi_i[i],2);
@@ -143,51 +146,6 @@ namespace QuantumParticle
 			}
 		}
 
-		void SimulationOmegas(T delta_tau, T time, std::vector<size_t> nn = {1}, std::vector<T> omegas = {3*M_PI*M_PI/2, 4*M_PI*M_PI/2, 8*M_PI*M_PI/2})
-		{
-			for(size_t n : nn)
-			{
-				std::ofstream outputE, outputO;
-				char buffer[50];
-				sprintf(buffer, "../Data/omegas_n=%lu.dat",n);
-				outputO.open(std::string(buffer), std::ios::trunc);
-				outputO << "omega\n";	
-				for(T o : omegas)
-					outputO << o << "\n";	
-				size_t o_index = 0;
-				for(T o : omegas)
-				{
-					omega = o;
-					sprintf(buffer, "../Data/e_n=%lu_omega=%lu.dat", n, o_index++);
-					outputE.open(std::string(buffer), std::ios::trunc);
-					size_t s_d = (size_t)(time/delta_tau);
-					InitWaveFunction(n);
-					T t = 0;
-					for(size_t s = 0; s < s_d; s++)
-					{
-						CalculateHamiltonianI(t);
-						for(size_t i = 0; i < N; i++)
-							psi_r[i] += H_i[i]*delta_tau/2;
-						t += delta_tau/2;
-						CalculateHamiltonianR(t);
-						for(size_t i = 0; i < N; i++)
-							psi_i[i] -= H_r[i]*delta_tau;
-						t += delta_tau/2;
-						CalculateHamiltonianI(t);
-						for(size_t i = 0; i < N; i++)
-							psi_r[i] += H_i[i]*delta_tau/2;
-						T h_sum = 0.;
-						CalculateHamiltonianR(t);
-						for(size_t i = 0; i < N; i++)
-							h_sum += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
-						outputE << t << " " << delta_x * h_sum << "\n";
-					}	
-					outputE.close();	
-				}
-				outputO.close();
-			}
-		}
-
 		void SimulationResonance(T delta_tau, T time, size_t n = 1, T n_omega = 3*M_PI*M_PI/2)
 		{
 			std::ofstream outputO;
@@ -209,19 +167,8 @@ namespace QuantumParticle
 				T E_max = 0.;
 				for(size_t s = 0; s < s_d; s++)
 				{
-					CalculateHamiltonianI(t);
-					for(size_t i = 0; i < N; i++)
-						psi_r[i] += H_i[i]*delta_tau/2;
-					t += delta_tau/2;
-					CalculateHamiltonianR(t);
-					for(size_t i = 0; i < N; i++)
-						psi_i[i] -= H_r[i]*delta_tau;
-					t += delta_tau/2;
-					CalculateHamiltonianI(t);
-					for(size_t i = 0; i < N; i++)
-						psi_r[i] += H_i[i]*delta_tau/2;
-					T E = 0.;
-					CalculateHamiltonianR(t);
+					Step(t, delta_tau);
+					T E = 0;
 					for(size_t i = 0; i < N; i++)
 						E += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
 					E > E_max ? E_max = E : E_max = E_max;
@@ -243,19 +190,8 @@ namespace QuantumParticle
 			T t = 0;
 			for(size_t s = 0; s < s_d; ++s)
 			{	
-				CalculateHamiltonianI(t);
-				for(size_t i = 0; i < N; i++)
-					psi_r[i] += H_i[i]*delta_tau/2;
-				t += delta_tau/2;
-				CalculateHamiltonianR(t);
-				for(size_t i = 0; i < N; i++)
-					psi_i[i] -= H_r[i]*delta_tau;
-				t += delta_tau/2;
-				CalculateHamiltonianI(t);
-				for(size_t i = 0; i < N; i++)
-					psi_r[i] += H_i[i]*delta_tau/2;
+				Step(t, delta_tau);
 				T h_sum = 0;
-				CalculateHamiltonianR(t);
 				for(size_t i = 0; i < N; i++)
 					h_sum += psi_r[i]*H_r[i] + psi_i[i]*H_i[i];
 				E_n[s] = delta_x * h_sum;
